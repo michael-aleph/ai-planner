@@ -57,9 +57,12 @@ export default async function handler(req, res) {
 2. "priority": "high", "medium", or "low". Use "high" conservatively, primarily when urgency or importance is explicit. Default to "medium".
 3. "deadline": specific time or period string if explicitly mentioned (e.g. "6:00 PM", "morning"), or null if absent.
 
+Also include a "summary" string: one concise sentence (maximum 200 characters) identifying the primary focus or order of work based strictly on the extracted tasks. Do not invent new tasks, deadlines, priorities, or facts. Use neutral, practical language. Return an empty string if no clear focus summary can be formed.
+
 Return ONLY a single valid JSON object without markdown formatting, code fences, or additional text.
 Response structure:
 {
+  "summary": "one concise sentence or empty string",
   "today": [
     { "task": "text", "priority": "high/medium/low", "deadline": "string or null" }
   ],
@@ -165,8 +168,9 @@ Response structure:
       });
     }
 
-    // Normalize task lists and generate deterministic IDs
+    // Normalize summary, task lists, and generate deterministic IDs
     const formattedResult = {
+      summary: normalizeSummary(parsedResult.summary),
       today: normalizeTaskList(parsedResult.today, 'today'),
       tomorrow: normalizeTaskList(parsedResult.tomorrow, 'tomorrow')
     };
@@ -181,6 +185,22 @@ Response structure:
       }
     });
   }
+}
+
+/**
+ * Normalizes summary string, trimming whitespace and capping at 200 characters
+ */
+function normalizeSummary(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return '';
+  }
+
+  return normalized.slice(0, 200);
 }
 
 /**
