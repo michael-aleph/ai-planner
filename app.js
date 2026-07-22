@@ -11,13 +11,159 @@ document.addEventListener('DOMContentLoaded', () => {
   const todayCount = document.getElementById('todayCount');
   const tomorrowCount = document.getElementById('tomorrowCount');
 
+  const voiceBtn = document.getElementById('voiceBtn');
+  const voiceBtnText = document.getElementById('voiceBtnText');
+  const voiceStatus = document.getElementById('voiceStatus');
+
   let isAnalyzing = false;
+
+  // Web Speech API Feature Detection
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  let isListening = false;
+  let voiceStatusTimer = null;
+
+  // Set voice status message
+  function setVoiceStatus(msg, clearAfterMs = 0) {
+    if (voiceStatusTimer) {
+      clearTimeout(voiceStatusTimer);
+      voiceStatusTimer = null;
+    }
+
+    if (msg) {
+      voiceStatus.textContent = msg;
+      voiceStatus.classList.remove('hidden');
+
+      if (clearAfterMs > 0) {
+        voiceStatusTimer = setTimeout(() => {
+          voiceStatus.classList.add('hidden');
+          voiceStatus.textContent = '';
+          voiceStatusTimer = null;
+        }, clearAfterMs);
+      }
+    } else {
+      voiceStatus.classList.add('hidden');
+      voiceStatus.textContent = '';
+    }
+  }
+
+  // Initialize Speech Recognition instance if supported
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      isListening = true;
+      voiceBtn.setAttribute('aria-pressed', 'true');
+      voiceBtn.setAttribute('aria-label', 'Stop voice input');
+      voiceBtnText.textContent = 'Listening...';
+      voiceBtn.classList.remove('bg-slate-100', 'text-slate-700', 'border-slate-200/80');
+      voiceBtn.classList.add('bg-red-100', 'text-red-700', 'border-red-300', 'animate-pulse');
+      setVoiceStatus('Listening...');
+    };
+
+    recognition.onresult = (event) => {
+      const rawTranscript = event?.results?.[0]?.[0]?.transcript;
+      if (typeof rawTranscript === 'string') {
+        const transcript = rawTranscript.trim();
+        if (transcript) {
+          const current = rawTextInput.value.trim();
+          if (current) {
+            const lastChar = current.slice(-1);
+            const separator = (['.', '!', '?'].includes(lastChar)) ? ' ' : '. ';
+            rawTextInput.value = current + separator + transcript;
+          } else {
+            rawTextInput.value = transcript;
+          }
+          rawTextInput.focus();
+          setVoiceStatus('Voice input added.', 4000);
+        }
+      }
+    };
+
+    recognition.onerror = (event) => {
+      const errorType = event?.error;
+      let msg = 'Voice recognition failed. Please try again or type your tasks.';
+
+      switch (errorType) {
+        case 'not-allowed':
+        case 'service-not-allowed':
+          msg = 'Microphone access was denied. Please allow access or type your tasks instead.';
+          break;
+        case 'no-speech':
+          msg = 'No speech was detected. Please try again.';
+          break;
+        case 'audio-capture':
+          msg = 'No microphone was found. Please check your device and try again.';
+          break;
+        case 'network':
+          msg = 'Voice recognition could not connect. Please try again.';
+          break;
+        default:
+          break;
+      }
+
+      setVoiceStatus(msg, 6000);
+    };
+
+    recognition.onend = () => {
+      isListening = false;
+      voiceBtn.setAttribute('aria-pressed', 'false');
+      voiceBtn.setAttribute('aria-label', 'Start voice input');
+      voiceBtnText.textContent = 'Speak';
+      voiceBtn.classList.remove('bg-red-100', 'text-red-700', 'border-red-300', 'animate-pulse');
+      voiceBtn.classList.add('bg-slate-100', 'text-slate-700', 'border-slate-200/80');
+    };
+  }
+
+  // Microphone button click handler
+  if (voiceBtn) {
+    if (!SpeechRecognition) {
+      voiceBtn.disabled = true;
+      voiceBtn.title = 'Voice recognition is not supported in this browser.';
+    } else {
+      voiceBtn.addEventListener('click', () => {
+        if (isAnalyzing) return;
+
+        showError(null);
+
+        if (isListening) {
+          try {
+            recognition.stop();
+          } catch (e) {
+            // Safe cleanup
+          }
+        } else {
+          setVoiceStatus(null);
+          try {
+            recognition.start();
+          } catch (err) {
+            console.error('Error starting voice recognition:', err);
+            setVoiceStatus('Voice recognition failed to start. Please try again.', 5000);
+          }
+        }
+      });
+    }
+  }
 
   // Set loading UI state
   function setLoading(isLoading) {
     isAnalyzing = isLoading;
     submitBtn.disabled = isLoading;
+    if (voiceBtn && SpeechRecognition) {
+      voiceBtn.disabled = isLoading;
+    }
     if (isLoading) {
+      if (isListening && recognition) {
+        try {
+          recognition.stop();
+        } catch (e) {
+          // Safe stop
+        }
+      }
       btnText.classList.add('hidden');
       btnSpinner.classList.remove('hidden');
     } else {
