@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="uk" class="h-full bg-slate-50">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AI Planner — Розумний планувальник завдань</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            todoist: {
+              red: '#e44232',
+              hover: '#cc3b2c',
+              light: '#fdf2f2',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+  </style>
+</head>
+<body class="min-h-full bg-slate-50 text-slate-800 flex flex-col items-center antialiased pb-12">
+
+  <!-- Mobile Container -->
+  <main class="w-full max-w-lg min-h-screen px-4 py-6 flex flex-col gap-6 sm:py-8 sm:px-6">
+
+    <!-- Header Section -->
+    <header class="flex items-center justify-between border-b border-slate-200/80 pb-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-todoist-red flex items-center justify-center text-white shadow-md shadow-todoist-red/20 shrink-0">
+          <!-- Todoist Checkmark Icon -->
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            AI Planner
+            <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-todoist-light text-todoist-red border border-todoist-red/20 uppercase tracking-wider">Gemini</span>
+          </h1>
+          <p class="text-xs text-slate-500 font-medium">Розумний розподіл завдань</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- Input Card -->
+    <section class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200/80 flex flex-col gap-3.5 transition-shadow duration-200 focus-within:shadow-md focus-within:border-slate-300">
+      <label for="rawTextInput" class="text-sm font-semibold text-slate-700 flex items-center justify-between">
+        <span>Введіть ваші завдання:</span>
+        <span class="text-xs text-slate-400 font-normal">Будь-який текст</span>
+      </label>
+      
+      <textarea
+        id="rawTextInput"
+        rows="4"
+        class="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-todoist-red/25 focus:border-todoist-red focus:bg-white resize-none transition-all duration-150"
+        placeholder="Наприклад: Завтра зробити звіт для боса. Сьогодні після 18:00 потрібно купити молоко і хліб. Також не забути подзвонити мамі..."
+      ></textarea>
+
+      <!-- Error message container -->
+      <div id="errorMessage" class="hidden text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2.5">
+        <svg class="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span id="errorText">Помилка обробки</span>
+      </div>
+
+      <!-- Action Button -->
+      <button
+        id="submitBtn"
+        type="button"
+        class="w-full py-3.5 px-4 bg-todoist-red hover:bg-todoist-hover text-white font-semibold text-sm rounded-xl shadow-md shadow-todoist-red/20 active:scale-[0.99] transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
+      >
+        <!-- Button Text -->
+        <span id="btnText" class="flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          Аналізувати
+        </span>
+
+        <!-- Loading Spinner -->
+        <span id="btnSpinner" class="hidden flex items-center gap-2">
+          <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Аналізуємо...
+        </span>
+      </button>
+    </section>
+
+    <!-- Task Lists Container -->
+    <section class="flex flex-col gap-5">
+
+      <!-- Section: Сьогодні -->
+      <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200/80">
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+          <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+            Сьогодні
+          </h2>
+          <span id="todayCount" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">0</span>
+        </div>
+
+        <ul id="todayList" class="flex flex-col gap-2">
+          <li class="empty-state text-slate-400 text-xs text-center py-6 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+            Немає завдань на сьогодні
+          </li>
+        </ul>
+      </div>
+
+      <!-- Section: Завтра -->
+      <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200/80">
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+          <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block"></span>
+            Завтра
+          </h2>
+          <span id="tomorrowCount" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">0</span>
+        </div>
+
+        <ul id="tomorrowList" class="flex flex-col gap-2">
+          <li class="empty-state text-slate-400 text-xs text-center py-6 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+            Немає завдань на завтра
+          </li>
+        </ul>
+      </div>
+
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
