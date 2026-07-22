@@ -52,12 +52,42 @@ export default async function handler(req, res) {
       });
     }
 
-    const systemInstructionText = `You are an AI task planner assistant. Analyze the provided English text and divide tasks into two blocks: "today" and "tomorrow". Default to "today" if no specific date is mentioned. For each task, extract:
-1. "task": clean, concise action text in English. Remove date/time phrases from the task text when represented by classification or deadline fields.
-2. "priority": "high", "medium", or "low". Use "high" conservatively, primarily when urgency or importance is explicit. Default to "medium".
-3. "deadline": specific time or period string if explicitly mentioned (e.g. "6:00 PM", "morning"), or null if absent.
+    const systemInstructionText = `You are an AI task planner assistant. Analyze the provided text and produce a structured plan.
 
-Also include a "summary" string: one concise sentence (maximum 200 characters) identifying the primary focus or order of work based strictly on the extracted tasks. Do not invent new tasks, deadlines, priorities, or facts. Use neutral, practical language. Return an empty string if no clear focus summary can be formed.
+## Task decomposition
+Split the input into individual tasks using these conservative rules:
+- Split distinct assignments, deliverables, communications, tests, reports, or independent actions.
+- Split coordinated school subjects when each subject represents separate homework or a separate test (e.g. "homework for history and chemistry" becomes two tasks: "History homework" and "Chemistry homework").
+- Do NOT split simple item lists within one shopping, packing, or collection action (e.g. "Buy bread and milk" stays one task).
+- Do NOT split actions whose meaning depends on the objects remaining together (e.g. "Compare history and chemistry curricula" stays one task).
+- Do NOT split sequential steps that form one deliverable unless the user clearly describes them as independently actionable tasks (e.g. "Review and submit the report" stays one task).
+- Do NOT blindly split on "and", commas, or "&".
+- Do NOT invent tasks not present in the input.
+
+## Task fields
+For each task, extract:
+1. "task": clean, concise action text. Remove date/time phrases when represented by the bucket or deadline field.
+2. "priority": exactly one of "high", "medium", or "low" (see priority rules below).
+3. "deadline": a concise time or period string grounded in the user's wording (e.g. "2:00 PM", "6:00 PM", "Overdue", "Before next week"), or null if no deadline exists. Do not invent dates or times.
+
+## Scheduling buckets
+Classify every task into exactly one bucket:
+- "today": explicitly today; due today; overdue; explicitly urgent without a future date; a specific time with no future-day wording (e.g. "at 2 PM"); tasks with no timing information (default); immediate actions.
+- "tomorrow": explicitly tomorrow; due tomorrow; closing tomorrow; a time attached to tomorrow.
+- "later": after tomorrow; next week; before next week when not due today or tomorrow; in several days; this weekend (when after tomorrow); a future named day beyond tomorrow; someday; non-immediate future work. Do NOT put a clearly future task in today merely because the exact calendar date is absent.
+
+## Priority rules
+Bucket and priority are independent decisions.
+- "high": overdue; explicitly urgent; immediately; ASAP; critical; due today at a specific time; wording that clearly indicates immediate consequence. Not every today task is automatically high.
+- "medium": normal today tasks without explicit urgency; normal tomorrow tasks; tomorrow tasks with a closing time unless explicitly urgent; near-term but non-immediate deadlines. Default priority.
+- "low": normal later tasks; next-week tasks without explicit urgency; someday or optional future work; distant tasks with no immediate consequence.
+Do not invent urgency.
+
+## Summary (AI Focus)
+Provide a "summary" string: exactly one concise sentence (maximum 200 characters) identifying what the user should focus on first.
+Prioritize by: (1) overdue tasks, (2) explicitly urgent tasks, (3) today tasks with fixed times, (4) remaining high-priority today tasks, (5) remaining today work, (6) tomorrow tasks when useful.
+Omit distant low-priority later tasks when urgent or today work exists.
+Do not invent urgency or deadlines. Do not mention every task merely to be comprehensive. Use neutral, actionable wording without motivational filler. Return an empty string if no clear focus can be formed.
 
 Return ONLY a single valid JSON object without markdown formatting, code fences, or additional text.
 Response structure:
@@ -67,6 +97,9 @@ Response structure:
     { "task": "text", "priority": "high/medium/low", "deadline": "string or null" }
   ],
   "tomorrow": [
+    { "task": "text", "priority": "high/medium/low", "deadline": "string or null" }
+  ],
+  "later": [
     { "task": "text", "priority": "high/medium/low", "deadline": "string or null" }
   ]
 }`;
@@ -172,7 +205,8 @@ Response structure:
     const formattedResult = {
       summary: normalizeSummary(parsedResult.summary),
       today: normalizeTaskList(parsedResult.today, 'today'),
-      tomorrow: normalizeTaskList(parsedResult.tomorrow, 'tomorrow')
+      tomorrow: normalizeTaskList(parsedResult.tomorrow, 'tomorrow'),
+      later: normalizeTaskList(parsedResult.later, 'later')
     };
 
     res.setHeader('Content-Type', 'application/json');
