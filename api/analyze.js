@@ -68,7 +68,7 @@ Response structure:
   ]
 }`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
 
     // 8-second request timeout via AbortController
     const controller = new AbortController();
@@ -113,6 +113,10 @@ Response structure:
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      console.error('Gemini upstream request failed', {
+        status: response.status,
+        code: 'UPSTREAM_ERROR'
+      });
       return res.status(502).json({
         error: {
           code: 'UPSTREAM_ERROR',
