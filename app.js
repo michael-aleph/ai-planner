@@ -18,7 +18,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const aiSummaryCard = document.getElementById('aiSummaryCard');
   const aiSummaryText = document.getElementById('aiSummaryText');
 
+  const PLAN_STORAGE_KEY = 'ai-planner.plan.v1';
+  const PLAN_STORAGE_VERSION = 1;
+
   let isAnalyzing = false;
+
+  // Empty plan factory
+  function createEmptyPlan() {
+    return {
+      version: PLAN_STORAGE_VERSION,
+      summary: '',
+      today: [],
+      tomorrow: []
+    };
+  }
+
+  // Central client state
+  let currentPlan = createEmptyPlan();
 
   // Web Speech API Feature Detection
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -180,7 +196,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (msg) {
       errorText.textContent = msg;
       errorMessage.classList.remove('hidden');
-      renderSummary(null);
     } else {
       errorMessage.classList.add('hidden');
       errorText.textContent = '';
@@ -201,6 +216,64 @@ document.addEventListener('DOMContentLoaded', () => {
 
     aiSummaryText.textContent = summary;
     aiSummaryCard.classList.remove('hidden');
+  }
+
+  // Save current plan state to localStorage
+  function savePlanToStorage(plan) {
+    try {
+      localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(plan));
+    } catch (e) {
+      // Catch quota or private browsing exceptions safely
+    }
+  }
+
+  // Load and validate plan state from localStorage
+  function loadPlanFromStorage() {
+    try {
+      const storedRaw = localStorage.getItem(PLAN_STORAGE_KEY);
+      if (!storedRaw) return createEmptyPlan();
+
+      const parsed = JSON.parse(storedRaw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        removeInvalidStoredPlan();
+        return createEmptyPlan();
+      }
+
+      if (parsed.version !== PLAN_STORAGE_VERSION) {
+        removeInvalidStoredPlan();
+        return createEmptyPlan();
+      }
+
+      const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 200) : '';
+      const today = normalizeTaskList(parsed.today, 'today');
+      const tomorrow = normalizeTaskList(parsed.tomorrow, 'tomorrow');
+
+      return {
+        version: PLAN_STORAGE_VERSION,
+        summary,
+        today,
+        tomorrow
+      };
+    } catch (e) {
+      removeInvalidStoredPlan();
+      return createEmptyPlan();
+    }
+  }
+
+  // Safely remove invalid stored plan from localStorage
+  function removeInvalidStoredPlan() {
+    try {
+      localStorage.removeItem(PLAN_STORAGE_KEY);
+    } catch (e) {
+      // Catch storage removal exceptions
+    }
+  }
+
+  // Render complete plan state
+  function renderPlan(plan) {
+    renderSummary(plan.summary);
+    renderTaskList(plan.today, todayList, todayCount, 'No tasks for today', 'today');
+    renderTaskList(plan.tomorrow, tomorrowList, tomorrowCount, 'No tasks for tomorrow', 'tomorrow');
   }
 
   // Return formatted priority badge (Red: High, Amber: Medium, Emerald: Low)
@@ -251,8 +324,8 @@ document.addEventListener('DOMContentLoaded', () => {
     return div.innerHTML;
   }
 
-  // Filter valid task objects
-  function filterValidTasks(tasks, listPrefix) {
+  // Filter and normalize task objects from API or state
+  function normalizeTaskList(tasks, listPrefix) {
     if (!Array.isArray(tasks)) {
       return [];
     }
@@ -274,16 +347,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const id = (typeof item.id === 'string' && item.id.trim())
         ? item.id.trim()
-        : `${listPrefix}-fallback-${index + 1}`;
+        : `${listPrefix}-${index + 1}`;
 
       const priority = (typeof item.priority === 'string') ? item.priority : 'medium';
       const deadline = (typeof item.deadline === 'string' && item.deadline.trim()) ? item.deadline.trim() : null;
+      const completed = item.completed === true;
 
       validList.push({
         id,
         task: taskText,
         priority,
-        deadline
+        deadline,
+        completed
       });
     });
 
@@ -293,7 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Dynamic list rendering function
   function renderTaskList(rawTasks, targetElement, countElement, emptyMessage, listPrefix) {
     targetElement.innerHTML = '';
-    const validTasks = filterValidTasks(rawTasks, listPrefix);
+    const validTasks = normalizeTaskList(rawTasks, listPrefix);
 
     if (validTasks.length === 0) {
       countElement.textContent = '0';
@@ -312,19 +387,28 @@ document.addEventListener('DOMContentLoaded', () => {
       const taskText = item.task;
       const priority = item.priority;
       const deadline = item.deadline;
+      const isCompleted = item.completed === true;
 
       const li = document.createElement('li');
       li.setAttribute('data-task-id', taskId);
       li.className = 'group flex items-center justify-between gap-3 p-3 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-xl transition-all duration-150 cursor-pointer select-none';
 
+      const checkClasses = isCompleted
+        ? 'bg-emerald-500 border-emerald-500 text-white'
+        : 'border-slate-300 text-transparent';
+
+      const titleClasses = isCompleted
+        ? 'line-through text-slate-400'
+        : 'text-slate-700';
+
       li.innerHTML = `
         <div class="flex items-center gap-2.5 min-w-0 flex-1">
-          <button type="button" aria-label="Mark as completed" aria-checked="false" role="checkbox" class="check-toggle w-5 h-5 rounded-full border-2 border-slate-300 group-hover:border-slate-400 flex items-center justify-center text-transparent hover:text-slate-400 shrink-0 transition-colors">
+          <button type="button" aria-label="Mark as completed" aria-checked="${isCompleted ? 'true' : 'false'}" role="checkbox" class="check-toggle w-5 h-5 rounded-full border-2 group-hover:border-slate-400 flex items-center justify-center shrink-0 transition-colors ${checkClasses}">
             <svg class="w-3 h-3 fill-current" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M0 11l2-2 5 5L18 3l2 2L7 18z"/>
             </svg>
           </button>
-          <span class="task-title text-sm text-slate-700 font-medium truncate">${escapeHtml(taskText)}</span>
+          <span class="task-title text-sm font-medium truncate ${titleClasses}">${escapeHtml(taskText)}</span>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           ${getDeadlineBadge(deadline)}
@@ -338,6 +422,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const toggleComplete = (e) => {
         e.stopPropagation();
+        const targetList = (listPrefix === 'today') ? currentPlan.today : currentPlan.tomorrow;
+        const targetTask = Array.isArray(targetList) ? targetList.find(t => t.id === taskId) : null;
+
         const isDone = checkBtn.getAttribute('aria-checked') === 'true';
         if (isDone) {
           checkBtn.setAttribute('aria-checked', 'false');
@@ -345,13 +432,17 @@ document.addEventListener('DOMContentLoaded', () => {
           checkBtn.classList.add('border-slate-300', 'text-transparent');
           titleSpan.classList.remove('line-through', 'text-slate-400');
           titleSpan.classList.add('text-slate-700');
+          if (targetTask) targetTask.completed = false;
         } else {
           checkBtn.setAttribute('aria-checked', 'true');
           checkBtn.classList.add('bg-emerald-500', 'border-emerald-500', 'text-white');
           checkBtn.classList.remove('border-slate-300', 'text-transparent');
           titleSpan.classList.add('line-through', 'text-slate-400');
           titleSpan.classList.remove('text-slate-700');
+          if (targetTask) targetTask.completed = true;
         }
+
+        savePlanToStorage(currentPlan);
       };
 
       checkBtn.addEventListener('click', toggleComplete);
@@ -423,15 +514,17 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error('Received an unexpected response format from server.');
       }
 
-      const todayTasks = Array.isArray(data.today) ? data.today : [];
-      const tomorrowTasks = Array.isArray(data.tomorrow) ? data.tomorrow : [];
+      // Construct and replace plan state with new analysis result
+      const newPlan = {
+        version: PLAN_STORAGE_VERSION,
+        summary: (typeof data.summary === 'string') ? data.summary.trim().slice(0, 200) : '',
+        today: normalizeTaskList(data.today, 'today'),
+        tomorrow: normalizeTaskList(data.tomorrow, 'tomorrow')
+      };
 
-      // Render AI Focus summary card if present
-      renderSummary(data.summary);
-
-      // Replace previous rendered task lists completely
-      renderTaskList(todayTasks, todayList, todayCount, 'No tasks for today', 'today');
-      renderTaskList(tomorrowTasks, tomorrowList, tomorrowCount, 'No tasks for tomorrow', 'tomorrow');
+      currentPlan = newPlan;
+      savePlanToStorage(currentPlan);
+      renderPlan(currentPlan);
 
     } catch (err) {
       console.error('Error analyzing tasks:', err);
@@ -440,6 +533,10 @@ document.addEventListener('DOMContentLoaded', () => {
       setLoading(false);
     }
   }
+
+  // Restore and render saved plan on page load
+  currentPlan = loadPlanFromStorage();
+  renderPlan(currentPlan);
 
   submitBtn.addEventListener('click', handleAnalyze);
 });
