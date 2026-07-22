@@ -18,6 +18,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const aiSummaryCard = document.getElementById('aiSummaryCard');
   const aiSummaryText = document.getElementById('aiSummaryText');
 
+  const planProgressCard = document.getElementById('planProgressCard');
+  const progressText = document.getElementById('progressText');
+  const progressBarFill = document.getElementById('progressBarFill');
+  const clearPlanBtn = document.getElementById('clearPlanBtn');
+
   const PLAN_STORAGE_KEY = 'ai-planner.plan.v1';
   const PLAN_STORAGE_VERSION = 1;
 
@@ -218,6 +223,47 @@ document.addEventListener('DOMContentLoaded', () => {
     aiSummaryCard.classList.remove('hidden');
   }
 
+  // Derive progress metrics from plan state
+  function getPlanProgress(plan) {
+    const todayTasks = Array.isArray(plan?.today) ? plan.today : [];
+    const tomorrowTasks = Array.isArray(plan?.tomorrow) ? plan.tomorrow : [];
+    const tasks = [...todayTasks, ...tomorrowTasks];
+    const total = tasks.length;
+    const completed = tasks.filter(task => task && task.completed === true).length;
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    return {
+      total,
+      completed,
+      percentage
+    };
+  }
+
+  // Render progress UI and ARIA attributes
+  function renderProgress(plan) {
+    if (!planProgressCard || !progressText || !progressBarFill) return;
+
+    const { total, completed, percentage } = getPlanProgress(plan);
+
+    if (total === 0) {
+      progressText.textContent = '0 of 0 tasks completed';
+      progressBarFill.style.width = '0%';
+      const progressTrack = progressBarFill.parentElement;
+      if (progressTrack) progressTrack.setAttribute('aria-valuenow', '0');
+      planProgressCard.classList.add('hidden');
+      return;
+    }
+
+    const taskLabel = total === 1 ? 'task' : 'tasks';
+    progressText.textContent = `${completed} of ${total} ${taskLabel} completed`;
+    progressBarFill.style.width = `${percentage}%`;
+
+    const progressTrack = progressBarFill.parentElement;
+    if (progressTrack) progressTrack.setAttribute('aria-valuenow', String(percentage));
+
+    planProgressCard.classList.remove('hidden');
+  }
+
   // Save current plan state to localStorage
   function savePlanToStorage(plan) {
     try {
@@ -235,12 +281,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const parsed = JSON.parse(storedRaw);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        removeInvalidStoredPlan();
+        removePlanFromStorage();
         return createEmptyPlan();
       }
 
       if (parsed.version !== PLAN_STORAGE_VERSION) {
-        removeInvalidStoredPlan();
+        removePlanFromStorage();
         return createEmptyPlan();
       }
 
@@ -255,13 +301,13 @@ document.addEventListener('DOMContentLoaded', () => {
         tomorrow
       };
     } catch (e) {
-      removeInvalidStoredPlan();
+      removePlanFromStorage();
       return createEmptyPlan();
     }
   }
 
-  // Safely remove invalid stored plan from localStorage
-  function removeInvalidStoredPlan() {
+  // Safely remove plan key from localStorage
+  function removePlanFromStorage() {
     try {
       localStorage.removeItem(PLAN_STORAGE_KEY);
     } catch (e) {
@@ -269,9 +315,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Render complete plan state
+  // Clear plan action handler
+  function clearPlan() {
+    currentPlan = createEmptyPlan();
+    removePlanFromStorage();
+    showError(null);
+    renderPlan(currentPlan);
+  }
+
+  if (clearPlanBtn) {
+    clearPlanBtn.addEventListener('click', clearPlan);
+  }
+
+  // Render complete plan state (summary, progress, task lists)
   function renderPlan(plan) {
     renderSummary(plan.summary);
+    renderProgress(plan);
     renderTaskList(plan.today, todayList, todayCount, 'No tasks for today', 'today');
     renderTaskList(plan.tomorrow, tomorrowList, tomorrowCount, 'No tasks for tomorrow', 'tomorrow');
   }
@@ -443,6 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         savePlanToStorage(currentPlan);
+        renderProgress(currentPlan);
       };
 
       checkBtn.addEventListener('click', toggleComplete);
