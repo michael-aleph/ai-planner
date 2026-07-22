@@ -28,6 +28,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let isAnalyzing = false;
 
+  // Bounded auto-growing height calculation for rawTextInput
+  function adjustTextareaHeight() {
+    if (!rawTextInput) return;
+
+    const minHeight = 112;
+    const maxHeight = 240;
+
+    rawTextInput.style.height = 'auto';
+
+    const contentHeight = rawTextInput.scrollHeight;
+    const nextHeight = Math.min(
+      Math.max(contentHeight, minHeight),
+      maxHeight
+    );
+
+    rawTextInput.style.height = `${nextHeight}px`;
+    rawTextInput.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+  }
+
+  if (rawTextInput) {
+    rawTextInput.addEventListener('input', adjustTextareaHeight);
+  }
+
   // Empty plan factory
   function createEmptyPlan() {
     return {
@@ -102,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
           } else {
             rawTextInput.value = transcript;
           }
+          adjustTextareaHeight();
           rawTextInput.focus();
           setVoiceStatus('Voice input added.', 4000);
         }
@@ -597,6 +621,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Restore and render saved plan on page load
   currentPlan = loadPlanFromStorage();
   renderPlan(currentPlan);
+  adjustTextareaHeight();
 
   submitBtn.addEventListener('click', handleAnalyze);
 });
