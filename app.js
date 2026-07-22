@@ -15,6 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const voiceBtnText = document.getElementById('voiceBtnText');
   const voiceStatus = document.getElementById('voiceStatus');
 
+  const aiSummaryCard = document.getElementById('aiSummaryCard');
+  const aiSummaryText = document.getElementById('aiSummaryText');
+
   let isAnalyzing = false;
 
   // Web Speech API Feature Detection
@@ -177,10 +180,27 @@ document.addEventListener('DOMContentLoaded', () => {
     if (msg) {
       errorText.textContent = msg;
       errorMessage.classList.remove('hidden');
+      renderSummary(null);
     } else {
       errorMessage.classList.add('hidden');
       errorText.textContent = '';
     }
+  }
+
+  // Render or hide AI Focus summary card
+  function renderSummary(value) {
+    if (!aiSummaryCard || !aiSummaryText) return;
+
+    const summary = (typeof value === 'string') ? value.trim() : '';
+
+    if (!summary) {
+      aiSummaryText.textContent = '';
+      aiSummaryCard.classList.add('hidden');
+      return;
+    }
+
+    aiSummaryText.textContent = summary;
+    aiSummaryCard.classList.remove('hidden');
   }
 
   // Return formatted priority badge (Red: High, Amber: Medium, Emerald: Low)
@@ -405,6 +425,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const todayTasks = Array.isArray(data.today) ? data.today : [];
       const tomorrowTasks = Array.isArray(data.tomorrow) ? data.tomorrow : [];
+
+      // Render AI Focus summary card if present
+      renderSummary(data.summary);
 
       // Replace previous rendered task lists completely
       renderTaskList(todayTasks, todayList, todayCount, 'No tasks for today', 'today');
