@@ -160,7 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
       : '';
 
     return `
-      <form class="task-editor-form flex flex-col gap-3 p-3.5 bg-slate-50 border border-todoist-red/40 rounded-xl shadow-xs transition-all">
+      <form class="task-editor-form flex flex-col gap-3 p-3.5 bg-slate-50 border border-todoist-accent/40 rounded-xl shadow-xs transition-all">
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">Task name</label>
           <input
@@ -168,7 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
             name="taskName"
             value="${safeName}"
             required
-            class="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-red/20 focus:border-todoist-red"
+            class="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-accent/20 focus:border-todoist-accent"
             placeholder="Enter task description"
           />
         </div>
@@ -177,7 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <label class="block text-xs font-semibold text-slate-700 mb-1">Section</label>
             <select
               name="section"
-              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-red/20 focus:border-todoist-red"
+              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-accent/20 focus:border-todoist-accent"
             >
               <option value="today" ${section === 'today' ? 'selected' : ''}>Today</option>
               <option value="tomorrow" ${section === 'tomorrow' ? 'selected' : ''}>Tomorrow</option>
@@ -188,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <label class="block text-xs font-semibold text-slate-700 mb-1">Priority</label>
             <select
               name="priority"
-              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-red/20 focus:border-todoist-red"
+              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-accent/20 focus:border-todoist-accent"
             >
               <option value="high" ${priority === 'high' ? 'selected' : ''}>High</option>
               <option value="medium" ${priority === 'medium' ? 'selected' : ''}>Medium</option>
@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
               name="deadline"
               value="${safeDeadline}"
               placeholder="e.g. 2:00 PM"
-              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-todoist-red/20 focus:border-todoist-red"
+              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-todoist-accent/20 focus:border-todoist-accent"
             />
           </div>
         </div>
