@@ -68,6 +68,111 @@ document.addEventListener('DOMContentLoaded', () => {
   // Central client state
   let currentPlan = createEmptyPlan();
 
+  // Single source of truth for active inline form (editing or future manual creation)
+  let activeFormState = null;
+
+  function findTaskAndList(taskId) {
+    if (!taskId || typeof taskId !== 'string') return { task: null, list: null, section: null };
+    const sections = ['today', 'tomorrow', 'later'];
+    for (const section of sections) {
+      const list = Array.isArray(currentPlan[section]) ? currentPlan[section] : [];
+      const task = list.find(t => t && t.id === taskId);
+      if (task) {
+        return { task, list, section };
+      }
+    }
+    return { task: null, list: null, section: null };
+  }
+
+  function closeActiveEditor() {
+    if (!activeFormState) return;
+    activeFormState = null;
+    renderPlan(currentPlan);
+  }
+
+  function openInlineEditor(taskId, defaultSection) {
+    const { task, section: currentSection } = findTaskAndList(taskId);
+    if (!task) return;
+
+    activeFormState = {
+      type: 'edit',
+      taskId: task.id,
+      section: currentSection || defaultSection
+    };
+
+    renderPlan(currentPlan);
+  }
+
+  function buildTaskFormMarkup({ taskName = '', priority = 'medium', deadline = '', section = 'today', isEdit = true }) {
+    const safeName = escapeHtml(taskName);
+    const safeDeadline = escapeHtml(deadline || '');
+
+    return `
+      <form class="task-editor-form flex flex-col gap-3 p-3.5 bg-slate-50 border border-todoist-red/40 rounded-xl shadow-xs transition-all">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Task name</label>
+          <input
+            type="text"
+            name="taskName"
+            value="${safeName}"
+            required
+            class="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-red/20 focus:border-todoist-red"
+            placeholder="Enter task description"
+          />
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Section</label>
+            <select
+              name="section"
+              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-red/20 focus:border-todoist-red"
+            >
+              <option value="today" ${section === 'today' ? 'selected' : ''}>Today</option>
+              <option value="tomorrow" ${section === 'tomorrow' ? 'selected' : ''}>Tomorrow</option>
+              <option value="later" ${section === 'later' ? 'selected' : ''}>Later</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Priority</label>
+            <select
+              name="priority"
+              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-todoist-red/20 focus:border-todoist-red"
+            >
+              <option value="high" ${priority === 'high' ? 'selected' : ''}>High</option>
+              <option value="medium" ${priority === 'medium' ? 'selected' : ''}>Medium</option>
+              <option value="low" ${priority === 'low' ? 'selected' : ''}>Low</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Deadline (optional)</label>
+            <input
+              type="text"
+              name="deadline"
+              value="${safeDeadline}"
+              placeholder="e.g. 2:00 PM"
+              class="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-todoist-red/20 focus:border-todoist-red"
+            />
+          </div>
+        </div>
+        <div class="editor-error hidden text-xs font-medium text-red-600 bg-red-50 p-2 rounded-lg border border-red-100"></div>
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button
+            type="button"
+            class="cancel-editor-btn py-1.5 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="save-editor-btn py-1.5 px-3 rounded-lg bg-todoist-red hover:bg-todoist-hover text-xs font-semibold text-white shadow-xs transition-colors"
+          >
+            ${isEdit ? 'Save changes' : 'Add task'}
+          </button>
+        </div>
+      </form>
+    `;
+  }
+
   // Web Speech API Feature Detection
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
@@ -374,6 +479,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Clear plan action handler
   function clearPlan() {
+    activeFormState = null;
     currentPlan = createEmptyPlan();
     removePlanFromStorage();
     showError(null);
@@ -506,6 +612,102 @@ document.addEventListener('DOMContentLoaded', () => {
       const deadline = item.deadline;
       const isCompleted = item.completed === true;
 
+      // Check if this task is currently being edited
+      if (activeFormState && activeFormState.type === 'edit' && activeFormState.taskId === taskId) {
+        const li = document.createElement('li');
+        li.className = 'w-full list-none';
+        li.innerHTML = buildTaskFormMarkup({
+          taskName: taskText,
+          priority: priority,
+          deadline: deadline || '',
+          section: listPrefix,
+          isEdit: true
+        });
+
+        const form = li.querySelector('.task-editor-form');
+        const nameInput = form.querySelector('[name="taskName"]');
+        const sectionSelect = form.querySelector('[name="section"]');
+        const prioritySelect = form.querySelector('[name="priority"]');
+        const deadlineInput = form.querySelector('[name="deadline"]');
+        const cancelBtn = form.querySelector('.cancel-editor-btn');
+        const errorDiv = form.querySelector('.editor-error');
+
+        cancelBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeActiveEditor();
+        });
+
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const newName = nameInput.value.trim();
+          if (!newName) {
+            errorDiv.textContent = 'Please enter a valid task name.';
+            errorDiv.classList.remove('hidden');
+            nameInput.focus();
+            return;
+          }
+
+          const rawSection = sectionSelect.value;
+          const allowedSections = ['today', 'tomorrow', 'later'];
+          const targetSection = allowedSections.includes(rawSection) ? rawSection : listPrefix;
+
+          const rawPriority = prioritySelect.value;
+          const allowedPriorities = ['high', 'medium', 'low'];
+          const targetPriority = allowedPriorities.includes(rawPriority) ? rawPriority : 'medium';
+
+          const rawDeadline = deadlineInput.value.trim();
+          const targetDeadline = rawDeadline.length > 0 ? rawDeadline : null;
+
+          // Perform state mutation
+          const { task: sourceTask, list: sourceList } = findTaskAndList(taskId);
+          if (!sourceTask) {
+            closeActiveEditor();
+            return;
+          }
+
+          if (targetSection === listPrefix) {
+            // Same section edit in place
+            sourceTask.task = newName;
+            sourceTask.priority = targetPriority;
+            sourceTask.deadline = targetDeadline;
+          } else {
+            // Move across sections
+            if (Array.isArray(sourceList)) {
+              const idx = sourceList.findIndex(t => t.id === taskId);
+              if (idx !== -1) {
+                sourceList.splice(idx, 1);
+              }
+            }
+
+            const updatedTask = {
+              id: sourceTask.id,
+              task: newName,
+              priority: targetPriority,
+              deadline: targetDeadline,
+              completed: sourceTask.completed === true
+            };
+
+            if (!Array.isArray(currentPlan[targetSection])) {
+              currentPlan[targetSection] = [];
+            }
+            currentPlan[targetSection].push(updatedTask);
+          }
+
+          // Clear AI Focus on successful save
+          currentPlan.summary = '';
+
+          savePlanToStorage(currentPlan);
+          activeFormState = null;
+          renderPlan(currentPlan);
+        });
+
+        targetElement.appendChild(li);
+        setTimeout(() => nameInput.focus(), 0);
+        return;
+      }
+
       const li = document.createElement('li');
       li.setAttribute('data-task-id', taskId);
       li.className = 'group flex items-center justify-between gap-3 p-3 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-xl transition-all duration-150 cursor-pointer select-none';
@@ -517,6 +719,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const titleClasses = isCompleted
         ? 'line-through text-slate-400'
         : 'text-slate-700';
+
+      const editClasses = isCompleted
+        ? 'text-slate-300 hover:text-slate-500'
+        : 'text-slate-400 hover:text-slate-600';
 
       li.innerHTML = `
         <div class="flex items-center gap-2.5 min-w-0 flex-1">
@@ -530,19 +736,22 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="flex items-center gap-1.5 shrink-0">
           ${getDeadlineBadge(deadline)}
           ${getPriorityBadge(priority)}
+          <button type="button" aria-label="Edit task ${escapeHtml(taskText)}" class="edit-btn text-xs font-semibold p-1 rounded hover:bg-slate-200/60 transition-colors ${editClasses}">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+          </button>
         </div>
       `;
 
       // Checkbox / row toggle logic for interactive task completion
       const checkBtn = li.querySelector('.check-toggle');
       const titleSpan = li.querySelector('.task-title');
+      const editBtn = li.querySelector('.edit-btn');
 
       const toggleComplete = (e) => {
         e.stopPropagation();
-        let targetList;
-        if (listPrefix === 'today') targetList = currentPlan.today;
-        else if (listPrefix === 'tomorrow') targetList = currentPlan.tomorrow;
-        else targetList = currentPlan.later;
+        const { list: targetList } = findTaskAndList(taskId);
         const targetTask = Array.isArray(targetList) ? targetList.find(t => t.id === taskId) : null;
 
         const isDone = checkBtn.getAttribute('aria-checked') === 'true';
@@ -567,8 +776,14 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       checkBtn.addEventListener('click', toggleComplete);
+
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openInlineEditor(taskId, listPrefix);
+      });
+
       li.addEventListener('click', (e) => {
-        if (e.target !== checkBtn && !checkBtn.contains(e.target)) {
+        if (e.target !== checkBtn && !checkBtn.contains(e.target) && e.target !== editBtn && !editBtn.contains(e.target)) {
           toggleComplete(e);
         }
       });
