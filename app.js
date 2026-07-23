@@ -8,8 +8,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const todayList = document.getElementById('todayList');
   const tomorrowList = document.getElementById('tomorrowList');
+  const laterList = document.getElementById('laterList');
   const todayCount = document.getElementById('todayCount');
   const tomorrowCount = document.getElementById('tomorrowCount');
+  const laterCount = document.getElementById('laterCount');
 
   const voiceBtn = document.getElementById('voiceBtn');
   const voiceBtnText = document.getElementById('voiceBtnText');
@@ -23,8 +25,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const progressBarFill = document.getElementById('progressBarFill');
   const clearPlanBtn = document.getElementById('clearPlanBtn');
 
-  const PLAN_STORAGE_KEY = 'ai-planner.plan.v1';
-  const PLAN_STORAGE_VERSION = 1;
+  const PLAN_STORAGE_KEY = 'ai-planner.plan.v2';
+  const LEGACY_PLAN_STORAGE_KEY = 'ai-planner.plan.v1';
+  const PLAN_STORAGE_VERSION = 2;
 
   let isAnalyzing = false;
 
@@ -57,7 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
       version: PLAN_STORAGE_VERSION,
       summary: '',
       today: [],
-      tomorrow: []
+      tomorrow: [],
+      later: []
     };
   }
 
@@ -251,7 +255,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function getPlanProgress(plan) {
     const todayTasks = Array.isArray(plan?.today) ? plan.today : [];
     const tomorrowTasks = Array.isArray(plan?.tomorrow) ? plan.tomorrow : [];
-    const tasks = [...todayTasks, ...tomorrowTasks];
+    const laterTasks = Array.isArray(plan?.later) ? plan.later : [];
+    const tasks = [...todayTasks, ...tomorrowTasks, ...laterTasks];
     const total = tasks.length;
     const completed = tasks.filter(task => task && task.completed === true).length;
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -292,50 +297,78 @@ document.addEventListener('DOMContentLoaded', () => {
   function savePlanToStorage(plan) {
     try {
       localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(plan));
+      return true;
     } catch (e) {
       // Catch quota or private browsing exceptions safely
+      return false;
     }
   }
 
   // Load and validate plan state from localStorage
   function loadPlanFromStorage() {
+    // Try loading v2 first
     try {
-      const storedRaw = localStorage.getItem(PLAN_STORAGE_KEY);
-      if (!storedRaw) return createEmptyPlan();
-
-      const parsed = JSON.parse(storedRaw);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        removePlanFromStorage();
-        return createEmptyPlan();
+      const v2Raw = localStorage.getItem(PLAN_STORAGE_KEY);
+      if (v2Raw) {
+        const parsed = JSON.parse(v2Raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.version === PLAN_STORAGE_VERSION) {
+          return {
+            version: PLAN_STORAGE_VERSION,
+            summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 200) : '',
+            today: normalizeTaskList(parsed.today, 'today'),
+            tomorrow: normalizeTaskList(parsed.tomorrow, 'tomorrow'),
+            later: normalizeTaskList(parsed.later, 'later')
+          };
+        }
       }
-
-      if (parsed.version !== PLAN_STORAGE_VERSION) {
-        removePlanFromStorage();
-        return createEmptyPlan();
-      }
-
-      const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 200) : '';
-      const today = normalizeTaskList(parsed.today, 'today');
-      const tomorrow = normalizeTaskList(parsed.tomorrow, 'tomorrow');
-
-      return {
-        version: PLAN_STORAGE_VERSION,
-        summary,
-        today,
-        tomorrow
-      };
     } catch (e) {
-      removePlanFromStorage();
-      return createEmptyPlan();
+      // v2 parse failed, fall through to v1 migration
     }
+
+    // Try migrating v1
+    try {
+      const v1Raw = localStorage.getItem(LEGACY_PLAN_STORAGE_KEY);
+      if (v1Raw) {
+        const parsed = JSON.parse(v1Raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.version === 1) {
+          const migrated = {
+            version: PLAN_STORAGE_VERSION,
+            summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 200) : '',
+            today: normalizeTaskList(parsed.today, 'today'),
+            tomorrow: normalizeTaskList(parsed.tomorrow, 'tomorrow'),
+            later: []
+          };
+
+          // Save migrated plan; remove v1 only on success
+          if (savePlanToStorage(migrated)) {
+            try {
+              localStorage.removeItem(LEGACY_PLAN_STORAGE_KEY);
+            } catch (e) {
+              // v1 removal failed; safe to leave behind
+            }
+          }
+
+          return migrated;
+        }
+      }
+    } catch (e) {
+      // v1 parse failed, fall through to empty plan
+    }
+
+    return createEmptyPlan();
   }
 
-  // Safely remove plan key from localStorage
+  // Safely remove application-owned plan keys from localStorage
   function removePlanFromStorage() {
     try {
       localStorage.removeItem(PLAN_STORAGE_KEY);
     } catch (e) {
       // Catch storage removal exceptions
+    }
+    try {
+      localStorage.removeItem(LEGACY_PLAN_STORAGE_KEY);
+    } catch (e) {
+      // Catch legacy key removal exceptions
     }
   }
 
@@ -357,6 +390,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderProgress(plan);
     renderTaskList(plan.today, todayList, todayCount, 'No tasks for today', 'today');
     renderTaskList(plan.tomorrow, tomorrowList, tomorrowCount, 'No tasks for tomorrow', 'tomorrow');
+    renderTaskList(plan.later, laterList, laterCount, 'No tasks planned for later', 'later');
   }
 
   // Return formatted priority badge (Red: High, Amber: Medium, Emerald: Low)
@@ -505,7 +539,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const toggleComplete = (e) => {
         e.stopPropagation();
-        const targetList = (listPrefix === 'today') ? currentPlan.today : currentPlan.tomorrow;
+        let targetList;
+        if (listPrefix === 'today') targetList = currentPlan.today;
+        else if (listPrefix === 'tomorrow') targetList = currentPlan.tomorrow;
+        else targetList = currentPlan.later;
         const targetTask = Array.isArray(targetList) ? targetList.find(t => t.id === taskId) : null;
 
         const isDone = checkBtn.getAttribute('aria-checked') === 'true';
@@ -603,7 +640,8 @@ document.addEventListener('DOMContentLoaded', () => {
         version: PLAN_STORAGE_VERSION,
         summary: (typeof data.summary === 'string') ? data.summary.trim().slice(0, 200) : '',
         today: normalizeTaskList(data.today, 'today'),
-        tomorrow: normalizeTaskList(data.tomorrow, 'tomorrow')
+        tomorrow: normalizeTaskList(data.tomorrow, 'tomorrow'),
+        later: normalizeTaskList(data.later, 'later')
       };
 
       currentPlan = newPlan;
