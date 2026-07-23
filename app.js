@@ -68,20 +68,51 @@ document.addEventListener('DOMContentLoaded', () => {
   // Central client state
   let currentPlan = createEmptyPlan();
 
-  // Single source of truth for active inline form (editing or future manual creation)
+  // Single source of truth for active inline form (editing or manual creation)
   let activeFormState = null;
 
   function findTaskAndList(taskId) {
-    if (!taskId || typeof taskId !== 'string') return { task: null, list: null, section: null };
+    if (!taskId || typeof taskId !== 'string') return { task: null, list: null, section: null, index: -1 };
     const sections = ['today', 'tomorrow', 'later'];
     for (const section of sections) {
       const list = Array.isArray(currentPlan[section]) ? currentPlan[section] : [];
-      const task = list.find(t => t && t.id === taskId);
-      if (task) {
-        return { task, list, section };
+      const idx = list.findIndex(t => t && t.id === taskId);
+      if (idx !== -1) {
+        return { task: list[idx], list, section, index: idx };
       }
     }
-    return { task: null, list: null, section: null };
+    return { task: null, list: null, section: null, index: -1 };
+  }
+
+  function findTaskInSection(section, taskId) {
+    const allowedSections = ['today', 'tomorrow', 'later'];
+    if (!allowedSections.includes(section) || !taskId || typeof taskId !== 'string') {
+      return { task: null, list: null, index: -1 };
+    }
+    const list = Array.isArray(currentPlan[section]) ? currentPlan[section] : [];
+    const idx = list.findIndex(t => t && t.id === taskId);
+    if (idx !== -1) {
+      return { task: list[idx], list, index: idx };
+    }
+    return { task: null, list, index: -1 };
+  }
+
+  function generateManualTaskId(targetSection) {
+    const prefix = ['today', 'tomorrow', 'later'].includes(targetSection) ? targetSection : 'today';
+    let candidate = '';
+    let attempts = 0;
+    while (attempts < 100) {
+      attempts++;
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        candidate = `manual-${crypto.randomUUID()}`;
+      } else {
+        const rand = Math.random().toString(36).slice(2, 8);
+        candidate = `manual-${Date.now().toString(36)}-${rand}`;
+      }
+      const { task } = findTaskAndList(candidate);
+      if (!task) return candidate;
+    }
+    return `manual-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   }
 
   function closeActiveEditor() {
@@ -103,9 +134,30 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPlan(currentPlan);
   }
 
+  function openAddForm(section) {
+    const allowedSections = ['today', 'tomorrow', 'later'];
+    const targetSection = allowedSections.includes(section) ? section : 'today';
+
+    activeFormState = {
+      type: 'add',
+      section: targetSection
+    };
+
+    renderPlan(currentPlan);
+  }
+
   function buildTaskFormMarkup({ taskName = '', priority = 'medium', deadline = '', section = 'today', isEdit = true }) {
     const safeName = escapeHtml(taskName);
     const safeDeadline = escapeHtml(deadline || '');
+
+    const deleteBtnMarkup = isEdit
+      ? `<button
+            type="button"
+            class="delete-editor-btn py-1.5 px-3 rounded-lg border border-red-200 bg-red-50 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors mr-auto"
+          >
+            Delete
+          </button>`
+      : '';
 
     return `
       <form class="task-editor-form flex flex-col gap-3 p-3.5 bg-slate-50 border border-todoist-red/40 rounded-xl shadow-xs transition-all">
@@ -154,8 +206,9 @@ document.addEventListener('DOMContentLoaded', () => {
             />
           </div>
         </div>
-        <div class="editor-error hidden text-xs font-medium text-red-600 bg-red-50 p-2 rounded-lg border border-red-100"></div>
-        <div class="flex items-center justify-end gap-2 pt-1">
+        <div class="editor-error hidden text-xs font-medium text-red-600 bg-red-50 p-2 rounded-lg border border-red-100" role="alert"></div>
+        <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
+          ${deleteBtnMarkup}
           <button
             type="button"
             class="cancel-editor-btn py-1.5 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
@@ -593,13 +646,44 @@ document.addEventListener('DOMContentLoaded', () => {
     targetElement.innerHTML = '';
     const validTasks = normalizeTaskList(rawTasks, listPrefix);
 
+    // Render + Add task button in section card header
+    const sectionHeader = targetElement.previousElementSibling;
+    if (sectionHeader && sectionHeader.classList.contains('flex')) {
+      let addBtn = sectionHeader.querySelector('.add-task-btn');
+      if (!addBtn) {
+        addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'add-task-btn text-xs font-semibold text-todoist-red hover:text-todoist-hover flex items-center gap-1 py-1 px-2.5 rounded-lg hover:bg-todoist-light transition-colors shrink-0';
+        addBtn.setAttribute('aria-label', `Add task to ${listPrefix}`);
+        addBtn.innerHTML = `
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>Add task</span>
+        `;
+        // Insert right before the count badge
+        sectionHeader.appendChild(addBtn);
+      }
+
+      // Re-bind click listener cleanly
+      addBtn.onclick = (e) => {
+        e.stopPropagation();
+        openAddForm(listPrefix);
+      };
+    }
+
     if (validTasks.length === 0) {
       countElement.textContent = '0';
-      targetElement.innerHTML = `
-        <li class="empty-state text-slate-400 text-xs text-center py-6 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-          ${escapeHtml(emptyMessage)}
-        </li>
-      `;
+      if (activeFormState && activeFormState.type === 'add' && activeFormState.section === listPrefix) {
+        // Render Add form inside empty section
+        renderAddFormInline(targetElement, listPrefix);
+      } else {
+        targetElement.innerHTML = `
+          <li class="empty-state text-slate-400 text-xs text-center py-6 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+            ${escapeHtml(emptyMessage)}
+          </li>
+        `;
+      }
       return;
     }
 
@@ -629,8 +713,26 @@ document.addEventListener('DOMContentLoaded', () => {
         const sectionSelect = form.querySelector('[name="section"]');
         const prioritySelect = form.querySelector('[name="priority"]');
         const deadlineInput = form.querySelector('[name="deadline"]');
+        const deleteBtn = form.querySelector('.delete-editor-btn');
         const cancelBtn = form.querySelector('.cancel-editor-btn');
         const errorDiv = form.querySelector('.editor-error');
+
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const { task: targetTask, list: targetList, index: targetIdx } = findTaskInSection(activeFormState.section || listPrefix, taskId);
+            if (!targetTask || targetIdx === -1 || !Array.isArray(targetList)) {
+              closeActiveEditor();
+              return;
+            }
+
+            targetList.splice(targetIdx, 1);
+            currentPlan.summary = '';
+            savePlanToStorage(currentPlan);
+            activeFormState = null;
+            renderPlan(currentPlan);
+          });
+        }
 
         cancelBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -660,14 +762,15 @@ document.addEventListener('DOMContentLoaded', () => {
           const rawDeadline = deadlineInput.value.trim();
           const targetDeadline = rawDeadline.length > 0 ? rawDeadline : null;
 
-          // Perform state mutation
-          const { task: sourceTask, list: sourceList } = findTaskAndList(taskId);
-          if (!sourceTask) {
+          // Perform state mutation using section-aware lookup
+          const editSection = activeFormState.section || listPrefix;
+          const { task: sourceTask, list: sourceList, index: sourceIdx } = findTaskInSection(editSection, taskId);
+          if (!sourceTask || sourceIdx === -1) {
             closeActiveEditor();
             return;
           }
 
-          if (targetSection === listPrefix) {
+          if (targetSection === editSection) {
             // Same section edit in place
             sourceTask.task = newName;
             sourceTask.priority = targetPriority;
@@ -675,10 +778,7 @@ document.addEventListener('DOMContentLoaded', () => {
           } else {
             // Move across sections
             if (Array.isArray(sourceList)) {
-              const idx = sourceList.findIndex(t => t.id === taskId);
-              if (idx !== -1) {
-                sourceList.splice(idx, 1);
-              }
+              sourceList.splice(sourceIdx, 1);
             }
 
             const updatedTask = {
@@ -790,6 +890,85 @@ document.addEventListener('DOMContentLoaded', () => {
 
       targetElement.appendChild(li);
     });
+
+    // If active form is Add mode for this section, append Add form to end of list
+    if (activeFormState && activeFormState.type === 'add' && activeFormState.section === listPrefix) {
+      renderAddFormInline(targetElement, listPrefix);
+    }
+  }
+
+  // Helper to render inline Add form in a section element
+  function renderAddFormInline(targetElement, sectionPrefix) {
+    const li = document.createElement('li');
+    li.className = 'w-full list-none mt-2';
+    li.innerHTML = buildTaskFormMarkup({
+      taskName: '',
+      priority: 'medium',
+      deadline: '',
+      section: sectionPrefix,
+      isEdit: false
+    });
+
+    const form = li.querySelector('.task-editor-form');
+    const nameInput = form.querySelector('[name="taskName"]');
+    const sectionSelect = form.querySelector('[name="section"]');
+    const prioritySelect = form.querySelector('[name="priority"]');
+    const deadlineInput = form.querySelector('[name="deadline"]');
+    const cancelBtn = form.querySelector('.cancel-editor-btn');
+    const errorDiv = form.querySelector('.editor-error');
+
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeActiveEditor();
+    });
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const newName = nameInput.value.trim();
+      if (!newName) {
+        errorDiv.textContent = 'Please enter a valid task name.';
+        errorDiv.classList.remove('hidden');
+        nameInput.focus();
+        return;
+      }
+
+      const rawSection = sectionSelect.value;
+      const allowedSections = ['today', 'tomorrow', 'later'];
+      const targetSection = allowedSections.includes(rawSection) ? rawSection : sectionPrefix;
+
+      const rawPriority = prioritySelect.value;
+      const allowedPriorities = ['high', 'medium', 'low'];
+      const targetPriority = allowedPriorities.includes(rawPriority) ? rawPriority : 'medium';
+
+      const rawDeadline = deadlineInput.value.trim();
+      const targetDeadline = rawDeadline.length > 0 ? rawDeadline : null;
+
+      const newId = generateManualTaskId(targetSection);
+      const newTask = {
+        id: newId,
+        task: newName,
+        priority: targetPriority,
+        deadline: targetDeadline,
+        completed: false
+      };
+
+      if (!Array.isArray(currentPlan[targetSection])) {
+        currentPlan[targetSection] = [];
+      }
+      currentPlan[targetSection].push(newTask);
+
+      // Clear AI Focus on successful manual creation
+      currentPlan.summary = '';
+
+      savePlanToStorage(currentPlan);
+      activeFormState = null;
+      renderPlan(currentPlan);
+    });
+
+    targetElement.appendChild(li);
+    setTimeout(() => nameInput.focus(), 0);
   }
 
   // Parse error message safely from server response
